@@ -9,7 +9,7 @@ import datetime
 from datetime import timedelta
 import joblib
 import os
-from tensorflow.keras.models import load_model
+from keras.models import load_model
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -252,25 +252,15 @@ def get_top_companies(country):
     return companies.get(country, companies["USA"])
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def get_stock_data(symbol, start_date, end_date):
     try:
         stock = yf.Ticker(symbol)
-
-        # Fetch historical price data separately
         data = stock.history(start=start_date, end=end_date)
-
-        # Fetch company information separately
-        try:
-            info = stock.info
-        except Exception:
-            info = {}
-
+        info = stock.info
         return data, info
-
     except Exception as e:
         st.error(f"Error fetching data for {symbol}: {str(e)}")
-        return None, {}
+        return None, None
 
 @st.cache_data(ttl=300)
 def get_multiple_stocks(symbols, start_date, end_date):
@@ -536,189 +526,8 @@ tab1, tab2, tab3, tab4 = st.tabs(["Stock Search", "ML Predictions", "Top Compani
 # Tab 1: Stock Search
 with tab1:
     st.markdown("## Stock Search")
-    st.markdown("Enter a stock symbol to get detailed analysis")
-    
-    search_query = st.text_input("Enter Stock Symbol (e.g., AAPL, TSLA, RELIANCE.NS)", value="AAPL", key="search1")
-    
-    if search_query:
-        data, info = get_stock_data(search_query, start_date, end_date)
-        
-        if data is not None and not data.empty:
-            data = calculate_technical_indicators(data)
-            
-            current_price = data['Close'].iloc[-1]
-            previous_close = data['Close'].iloc[-2] if len(data) > 1 else current_price
-            price_change = current_price - previous_close
-            price_change_percent = (price_change / previous_close) * 100 if previous_close != 0 else 0
-            
-            company_name = info.get('longName', search_query)
-            
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
-            with col1:
-                st.metric(
-                    "Current Price",
-                    f"${current_price:.2f}",
-                    f"{price_change_percent:.2f}%",
-                    delta_color="normal"
-                )
-            
-            with col2:
-                st.metric(
-                    "Day High",
-                    f"${data['High'].iloc[-1]:.2f}",
-                    f"${data['High'].iloc[-1] - data['Low'].iloc[-1]:.2f}"
-                )
-            
-            with col3:
-                st.metric(
-                    "Day Low",
-                    f"${data['Low'].iloc[-1]:.2f}"
-                )
-            
-            with col4:
-                volume = data['Volume'].iloc[-1]
-                st.metric(
-                    "Volume",
-                    f"{volume:,.0f}",
-                    f"{((volume / data['Volume'].iloc[-2]) - 1) * 100:.1f}%" if len(data) > 1 else None
-                )
-            
-            with col5:
-                market_cap = info.get('marketCap', 0)
-                if market_cap:
-                    if market_cap > 1e12:
-                        cap_str = f"${market_cap/1e12:.2f}T"
-                    elif market_cap > 1e9:
-                        cap_str = f"${market_cap/1e9:.2f}B"
-                    else:
-                        cap_str = f"${market_cap/1e6:.2f}M"
-                    st.metric("Market Cap", cap_str)
-            
-            tab_price, tab_tech, tab_indicators, tab_info, tab_financials = st.tabs([
-                "Price Chart", 
-                "Technical Analysis", 
-                "Indicators",
-                "Company Info",
-                "Financials"
-            ])
-            
-            with tab_price:
-                fig_price = plot_stock_price_with_predictions(data, search_query, company_name)
-                st.plotly_chart(fig_price, use_container_width=True)
-                
-                fig_volume = plot_volume(data, search_query)
-                st.plotly_chart(fig_volume, use_container_width=True)
-            
-            with tab_tech:
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    fig_rsi = plot_rsi(data, search_query)
-                    st.plotly_chart(fig_rsi, use_container_width=True)
-                
-                with col2:
-                    fig_macd = plot_macd(data, search_query)
-                    st.plotly_chart(fig_macd, use_container_width=True)
-            
-            with tab_indicators:
-                st.subheader("Technical Indicators Summary")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.markdown("**Moving Averages**")
-                    last_close = data['Close'].iloc[-1]
-                    
-                    if 'MA20' in data.columns and not data['MA20'].isna().iloc[-1]:
-                        ma20 = data['MA20'].iloc[-1]
-                        st.write(f"MA20: ${ma20:.2f} ({'Above' if last_close > ma20 else 'Below'} Price)")
-                    if 'MA50' in data.columns and not data['MA50'].isna().iloc[-1]:
-                        ma50 = data['MA50'].iloc[-1]
-                        st.write(f"MA50: ${ma50:.2f} ({'Above' if last_close > ma50 else 'Below'} Price)")
-                    if 'MA200' in data.columns and not data['MA200'].isna().iloc[-1]:
-                        ma200 = data['MA200'].iloc[-1]
-                        st.write(f"MA200: ${ma200:.2f} ({'Above' if last_close > ma200 else 'Below'} Price)")
-                
-                with col2:
-                    st.markdown("**RSI Analysis**")
-                    if 'RSI' in data.columns and not data['RSI'].isna().iloc[-1]:
-                        rsi = data['RSI'].iloc[-1]
-                        status = "Overbought" if rsi > 70 else ("Oversold" if rsi < 30 else "Neutral")
-                        st.write(f"RSI: {rsi:.2f} ({status})")
-                
-                with col3:
-                    st.markdown("**Bollinger Bands**")
-                    if 'BB_Upper' in data.columns and not data['BB_Upper'].isna().iloc[-1]:
-                        bb_upper = data['BB_Upper'].iloc[-1]
-                        bb_lower = data['BB_Lower'].iloc[-1]
-                        bb_middle = data['BB_Middle'].iloc[-1]
-                        st.write(f"Upper: ${bb_upper:.2f}")
-                        st.write(f"Middle: ${bb_middle:.2f}")
-                        st.write(f"Lower: ${bb_lower:.2f}")
-                        st.write(f"Width: ${bb_upper - bb_lower:.2f}")
-            
-            with tab_info:
-                if info:
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("### Company Overview")
-                        st.write(f"**Name:** {info.get('longName', 'N/A')}")
-                        st.write(f"**Sector:** {info.get('sector', 'N/A')}")
-                        st.write(f"**Industry:** {info.get('industry', 'N/A')}")
-                        st.write(f"**Country:** {info.get('country', 'N/A')}")
-                        st.write(f"**Website:** {info.get('website', 'N/A')}")
-                    
-                    with col2:
-                        st.markdown("### Financial Metrics")
-                        st.write(f"**P/E Ratio:** {info.get('trailingPE', 'N/A')}")
-                        st.write(f"**EPS:** {info.get('trailingEps', 'N/A')}")
-                        st.write(f"**Dividend Yield:** {info.get('dividendYield', 0) * 100:.2f}%" if info.get('dividendYield') else "N/A")
-                        st.write(f"**52-Week High:** ${info.get('fiftyTwoWeekHigh', 'N/A')}")
-                        st.write(f"**52-Week Low:** ${info.get('fiftyTwoWeekLow', 'N/A')}")
-            
-            with tab_financials:
-                st.subheader("Financial Statements (Latest Available)")
-                
-                income_stmt = yf.Ticker(search_query).income_stmt
-                if not income_stmt.empty:
-                    st.markdown("### Income Statement")
-                    st.dataframe(income_stmt.head(10))
-                
-                balance_sheet = yf.Ticker(search_query).balance_sheet
-                if not balance_sheet.empty:
-                    st.markdown("### Balance Sheet")
-                    st.dataframe(balance_sheet.head(10))
-                
-                cash_flow = yf.Ticker(search_query).cashflow
-                if not cash_flow.empty:
-                    st.markdown("### Cash Flow")
-                    st.dataframe(cash_flow.head(10))
-            
-            st.markdown("---")
-            st.subheader("Key Statistics")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                avg_volume = data['Volume'].mean()
-                st.metric("Avg Volume", f"{avg_volume:,.0f}")
-            
-            with col2:
-                if len(data) > 1:
-                    daily_returns = data['Close'].pct_change()
-                    volatility = daily_returns.std() * np.sqrt(252) * 100
-                    st.metric("Volatility (Annual)", f"{volatility:.2f}%")
-            
-            with col3:
-                if len(data) > 1:
-                    price_range = data['High'].max() - data['Low'].min()
-                    st.metric("Price Range (52w)", f"${price_range:.2f}")
-            
-            with col4:
-                if len(data) > 20:
-                    momentum = ((data['Close'].iloc[-1] / data['Close'].iloc[-20]) - 1) * 100
-                    st.metric("20-Day Momentum", f"{momentum:.2f}%")
+    st.markdown("Select a country and search for a company from the Top Companies tab.")
+    st.info("Go to the **Top Companies** tab to browse the 10 companies for the selected country and search for a specific stock.")
 
 # Tab 2: ML Predictions (NEW)
 with tab2:
@@ -879,12 +688,53 @@ with tab2:
 # Tab 3: Top Companies
 with tab3:
     st.markdown(f"## Top Companies - {country}")
-    
+
     top_companies = get_top_companies(country)
     symbols = [company['symbol'] for company in top_companies]
-    
+
+    # Search within the 10 companies for the selected country
+    company_options = [f"{company['symbol']} - {company['name']}" for company in top_companies]
+    selected_company = st.selectbox(
+        "Search / Select a Company",
+        company_options,
+        key="top_company_search"
+    )
+    selected_symbol = selected_company.split(" - ")[0]
+
+    # Show detailed information for the selected company
+    selected_data, selected_info = get_stock_data(selected_symbol, start_date, end_date)
+    if selected_data is not None and not selected_data.empty:
+        current_price = selected_data['Close'].iloc[-1]
+        prev_price = selected_data['Close'].iloc[-2] if len(selected_data) > 1 else current_price
+        change = ((current_price - prev_price) / prev_price) * 100 if prev_price != 0 else 0
+
+        st.markdown(f"### {selected_symbol} - Detailed Analysis")
+        metric_cols = st.columns(3)
+        with metric_cols[0]:
+            st.metric("Current Price", f"${current_price:.2f}")
+        with metric_cols[1]:
+            st.metric("Day Change", f"{change:.2f}%")
+        with metric_cols[2]:
+            st.metric("Company", selected_symbol)
+
+        fig_selected = go.Figure()
+        fig_selected.add_trace(go.Scatter(
+            x=selected_data.index,
+            y=selected_data['Close'],
+            mode='lines',
+            name=selected_symbol
+        ))
+        fig_selected.update_layout(
+            title=f"{selected_symbol} Price Chart",
+            template='plotly_dark',
+            xaxis_title='Date',
+            yaxis_title='Price'
+        )
+        st.plotly_chart(fig_selected, use_container_width=True)
+
+    st.markdown("### Top 10 Companies")
     cols = st.columns(5)
-    
+
     for idx, company in enumerate(top_companies):
         with cols[idx % 5]:
             try:
@@ -893,7 +743,7 @@ with tab3:
                     current_price = stock_data['Close'].iloc[-1]
                     prev_price = stock_data['Close'].iloc[-2] if len(stock_data) > 1 else current_price
                     change = ((current_price - prev_price) / prev_price) * 100 if prev_price != 0 else 0
-                    
+
                     card_color = "#00cc00" if change >= 0 else "#ff0000"
                     st.markdown(f"""
                         <div style="background: #1f1f1f; padding: 0.5rem; border-radius: 8px; margin: 0.2rem 0; border-left: 3px solid {card_color};">
@@ -905,22 +755,22 @@ with tab3:
                             </div>
                         </div>
                     """, unsafe_allow_html=True)
-            except:
+            except Exception:
                 pass
-    
+
     st.markdown("### Stock Performance Comparison")
-    
+
     data_dict = get_multiple_stocks(symbols[:10], start_date, end_date)
-    
+
     if not data_dict.empty:
         fig_comparison = plot_stock_comparison(data_dict)
         st.plotly_chart(fig_comparison, use_container_width=True)
-    
+
     st.markdown("### Stock Correlation Matrix")
-    
+
     if len(data_dict.columns) > 1:
         correlation_matrix = data_dict.pct_change().corr()
-        
+
         fig_corr = go.Figure(data=go.Heatmap(
             z=correlation_matrix.values,
             x=correlation_matrix.columns,
@@ -933,14 +783,14 @@ with tab3:
             textfont={"size": 10},
             hoverongaps=False
         ))
-        
+
         fig_corr.update_layout(
             title='Stock Correlation Matrix',
             template='plotly_dark',
             height=500,
             width=700
         )
-        
+
         st.plotly_chart(fig_corr, use_container_width=True)
 
 # Tab 4: Market Overview
