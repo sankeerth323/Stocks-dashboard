@@ -252,15 +252,25 @@ def get_top_companies(country):
     return companies.get(country, companies["USA"])
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def get_stock_data(symbol, start_date, end_date):
     try:
         stock = yf.Ticker(symbol)
+
+        # Fetch historical price data separately
         data = stock.history(start=start_date, end=end_date)
-        info = stock.info
+
+        # Fetch company information separately
+        try:
+            info = stock.info
+        except Exception:
+            info = {}
+
         return data, info
+
     except Exception as e:
         st.error(f"Error fetching data for {symbol}: {str(e)}")
-        return None, None
+        return None, {}
 
 @st.cache_data(ttl=300)
 def get_multiple_stocks(symbols, start_date, end_date):
